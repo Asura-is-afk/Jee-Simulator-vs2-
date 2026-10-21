@@ -1940,4 +1940,963 @@ function DashboardView() {
     </div>
   );
 }
+// =============================================================================
+// VIEW COMPONENTS - QUESTS
+// =============================================================================
+
+function QuestsView() {
+  const { state, dispatch, addTerminalLog } = useApp();
+  const { weeklyChallenges, bookmarkedChapters, userStats } = state;
+
+  const [newChapterName, setNewChapterName] = useState('');
+  const [newChapterSubject, setNewChapterSubject] = useState<'Physics' | 'Chemistry' | 'Math'>('Physics');
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [confettiXp, setConfettiXp] = useState(0);
+  const [showMissionFailed, setShowMissionFailed] = useState(false);
+
+  const handleAddChapter = () => {
+    if (!newChapterName.trim()) return;
+
+    const newChapter: BookmarkedChapter = {
+      id: `bookmark-${Date.now()}`,
+      name: newChapterName.trim(),
+      subject: newChapterSubject,
+      addedAt: new Date().toISOString(),
+    };
+
+    dispatch({ type: 'ADD_BOOKMARKED_CHAPTER', payload: newChapter });
+    addTerminalLog(`Chapter added: ${newChapterName} (${newChapterSubject})`, 'info');
+    setNewChapterName('');
+  };
+
+  const handleClaimMastered = (chapter: BookmarkedChapter) => {
+    const xpReward = 500;
+
+    dispatch({
+      type: 'CLAIM_CHAPTER_MASTERED',
+      payload: { id: chapter.id, xp: xpReward },
+    });
+
+    addTerminalLog(`+${xpReward} XP: Chapter Mastered - ${chapter.name}`, 'success', xpReward);
+
+    const newXp = userStats.currentXp + xpReward;
+    const { level, rank, nextLevelXp } = getLevelFromXp(newXp);
+    if (level !== userStats.level || rank !== userStats.rank) {
+      dispatch({
+        type: 'UPDATE_USER_STATS',
+        payload: { level, rank, nextLevelXp },
+      });
+      addTerminalLog(`LEVEL UP! Now Level ${level} - ${rank}`, 'warning');
+    }
+
+    setConfettiXp(xpReward);
+    setShowConfetti(true);
+  };
+
+  const handleUpdateChallengeProgress = (challengeId: string, increment: number) => {
+    const challenge = weeklyChallenges.find((c) => c.id === challengeId);
+    if (!challenge) return;
+
+    const newProgress = Math.min(challenge.progress + increment, challenge.target);
+    const completed = newProgress >= challenge.target;
+
+    dispatch({
+      type: 'UPDATE_WEEKLY_CHALLENGE',
+      payload: { id: challengeId, progress: newProgress, completed },
+    });
+
+    addTerminalLog(
+      `${challenge.title}: ${newProgress}/${challenge.target} ${completed ? '- COMPLETED!' : ''}`,
+      completed ? 'success' : 'info'
+    );
+
+    if (completed) {
+      const allCompleted = weeklyChallenges.every((c) => c.id === challengeId ? true : c.completed);
+      if (allCompleted) {
+        handleAllChallengesCompleted();
+      }
+    }
+  };
+
+  const handleMarkChallengeDone = (challengeId: string) => {
+    const challenge = weeklyChallenges.find((c) => c.id === challengeId);
+    if (!challenge) return;
+
+    dispatch({
+      type: 'UPDATE_WEEKLY_CHALLENGE',
+      payload: { id: challengeId, progress: challenge.target, completed: true },
+    });
+
+    addTerminalLog(`${challenge.title}: COMPLETED!`, 'success');
+
+    const allCompleted = weeklyChallenges.every((c) => c.id === challengeId ? true : c.completed);
+    if (allCompleted) {
+      handleAllChallengesCompleted();
+    }
+  };
+
+  const handleAllChallengesCompleted = () => {
+    const bonusXp = 1000;
+    dispatch({ type: 'COMPLETE_ALL_CHALLENGES', payload: { xpBonus: bonusXp } });
+    addTerminalLog(`ALL CHALLENGES COMPLETE! +${bonusXp} XP BONUS!`, 'success', bonusXp);
+
+    const newXp = userStats.currentXp + bonusXp;
+    const { level, rank, nextLevelXp } = getLevelFromXp(newXp);
+    if (level !== userStats.level || rank !== userStats.rank) {
+      dispatch({
+        type: 'UPDATE_USER_STATS',
+        payload: { level, rank, nextLevelXp },
+      });
+      addTerminalLog(`LEVEL UP! Now Level ${level} - ${rank}`, 'warning');
+    }
+  };
+
+  const handleSimulateExpire = () => {
+    const penalty = 500;
+    const newMultiplier = 2;
+
+    dispatch({
+      type: 'APPLY_WEEKLY_PENALTY',
+      payload: { xpPenalty: -penalty },
+    });
+
+    dispatch({
+      type: 'RESET_WEEKLY_CHALLENGES',
+      payload: {
+        penaltyMultiplier: newMultiplier,
+        weekStartDate: new Date().toISOString().split('T')[0],
+      },
+    });
+
+    addTerminalLog(`-${penalty} XP: Weekly Challenge Failed`, 'error', -penalty);
+    addTerminalLog(`Targets DOUBLED for next week!`, 'error');
+
+    setShowMissionFailed(true);
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <ConfettiModal isOpen={showConfetti} onClose={() => setShowConfetti(false)} xpGained={confettiXp} />
+      <MissionFailedModal
+        isOpen={showMissionFailed}
+        onClose={() => setShowMissionFailed(false)}
+        xpPenalty={500}
+        nextMultiplier={2}
+      />
+
+      <div className="cyber-panel p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-arcade text-lg text-cyber-green flex items-center gap-2">
+            <Swords className="w-6 h-6" />
+            Weekly Guild Challenges
+          </h2>
+          <div className="flex items-center gap-2 text-xs">
+            <Star className="w-4 h-4 text-yellow-500" />
+            <span className="text-yellow-500 font-mono">+1000 XP Bonus</span>
+          </div>
+        </div>
+
+        <WeeklyCountdownTimer />
+
+        <p className="text-cyber-muted text-sm my-4">
+          Complete all challenges before Sunday midnight to earn the bonus! Fail and face the penalty.
+        </p>
+
+        {weeklyChallenges[0]?.penaltyMultiplier > 1 && (
+          <div className="cyber-panel-inset p-3 mb-4 border border-red-500/30 bg-red-500/10">
+            <p className="text-red-400 font-mono text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              PENALTY MULTIPLIER ACTIVE: x{weeklyChallenges[0].penaltyMultiplier}
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {weeklyChallenges.map((challenge) => (
+            <div
+              key={challenge.id}
+              className={`cyber-panel-inset p-4 border-l-4 ${
+                challenge.completed ? 'border-l-cyber-green' : 'border-l-yellow-500'
+              }`}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <h3 className="text-white font-medium flex items-center gap-2">
+                    {challenge.title}
+                    {challenge.completed && <Check className="w-4 h-4 text-cyber-green" />}
+                  </h3>
+                  <p className="text-sm text-cyber-muted">{challenge.description}</p>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-cyber-muted">Progress</span>
+                  <span className={`${challenge.completed ? 'text-cyber-green' : 'text-cyber-cyan'} font-mono`}>
+                    {challenge.progress}/{challenge.target}
+                  </span>
+                </div>
+                <div className="stat-bar-bg">
+                  <div
+                    className={`stat-bar-fill ${challenge.completed ? 'bg-cyber-green' : ''}`}
+                    style={{ width: `${Math.min((challenge.progress / challenge.target) * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                {challenge.target > 1 ? (
+                  <>
+                    <button
+                      onClick={() => handleUpdateChallengeProgress(challenge.id, 5)}
+                      disabled={challenge.completed}
+                      className={`px-3 py-1 text-xs font-mono rounded transition-colors ${
+                        challenge.completed
+                          ? 'bg-cyber-muted/20 text-cyber-muted cursor-not-allowed'
+                          : 'bg-cyber-green/20 border border-cyber-green/50 text-cyber-green hover:bg-cyber-green/30'
+                      }`}
+                    >
+                      +5 Progress
+                    </button>
+                    <button
+                      onClick={() => handleUpdateChallengeProgress(challenge.id, 10)}
+                      disabled={challenge.completed}
+                      className={`px-3 py-1 text-xs font-mono rounded transition-colors ${
+                        challenge.completed
+                          ? 'bg-cyber-muted/20 text-cyber-muted cursor-not-allowed'
+                          : 'bg-cyber-cyan/20 border border-cyber-cyan/50 text-cyber-cyan hover:bg-cyber-cyan/30'
+                      }`}
+                    >
+                      +10 Progress
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => handleMarkChallengeDone(challenge.id)}
+                    disabled={challenge.completed}
+                    className={`px-4 py-2 text-xs font-mono rounded transition-colors ${
+                      challenge.completed
+                        ? 'bg-cyber-green/20 border border-cyber-green text-cyber-green cursor-not-allowed'
+                        : 'bg-cyber-green/20 border border-cyber-green text-cyber-green hover:bg-cyber-green/30'
+                    }`}
+                  >
+                    {challenge.completed ? 'DONE' : 'MARK DONE'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={handleSimulateExpire}
+          className="w-full mt-4 py-2 px-4 rounded-lg font-mono text-xs transition-all border border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center justify-center gap-2"
+        >
+          <Skull className="w-4 h-4" />
+          SIMULATE SUNDAY MIDNIGHT EXPIRE
+        </button>
+      </div>
+
+      <div className="cyber-panel p-6">
+        <h2 className="font-arcade text-lg text-cyber-cyan mb-2 flex items-center gap-2">
+          <Bookmark className="w-6 h-6" />
+          Bookmarked Syllabus Vault
+        </h2>
+        <p className="text-cyber-muted text-sm mb-6">
+          Add chapters you are currently targeting. Mark them as mastered to earn massive XP bonuses!
+        </p>
+
+        <div className="cyber-panel-inset p-4 mb-6">
+          <div className="flex flex-col md:flex-row gap-3">
+            <input
+              type="text"
+              value={newChapterName}
+              onChange={(e) => setNewChapterName(e.target.value)}
+              placeholder="Enter chapter name..."
+              className="flex-1 bg-cyber-dark border border-cyber-border rounded px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-cyber-cyan transition-colors"
+              onKeyDown={(e) => e.key === 'Enter' && handleAddChapter()}
+            />
+            <select
+              value={newChapterSubject}
+              onChange={(e) => setNewChapterSubject(e.target.value as 'Physics' | 'Chemistry' | 'Math')}
+              className="bg-cyber-dark border border-cyber-border rounded px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-cyber-cyan transition-colors"
+            >
+              <option value="Physics">Physics</option>
+              <option value="Chemistry">Chemistry</option>
+              <option value="Math">Math</option>
+            </select>
+            <button
+              onClick={handleAddChapter}
+              disabled={!newChapterName.trim()}
+              className={`px-4 py-2 rounded font-mono text-sm flex items-center gap-2 transition-colors ${
+                newChapterName.trim()
+                  ? 'bg-cyber-green/20 border border-cyber-green text-cyber-green hover:bg-cyber-green/30'
+                  : 'bg-cyber-muted/20 border border-cyber-muted/50 text-cyber-muted cursor-not-allowed'
+              }`}
+            >
+              <Plus className="w-4 h-4" />
+              Add
+            </button>
+          </div>
+        </div>
+
+        {bookmarkedChapters.length > 0 ? (
+          <div className="space-y-3">
+            {bookmarkedChapters.map((chapter) => (
+              <div
+                key={chapter.id}
+                className="cyber-panel-inset p-4 border-l-4 border-l-cyber-cyan"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <SubjectIcon subject={chapter.subject} className={getSubjectColor(chapter.subject)} />
+                    <span className="text-white font-medium">{chapter.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded ${getSubjectColor(chapter.subject)} bg-cyber-dark/50`}>
+                      {chapter.subject}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={() => handleClaimMastered(chapter)}
+                    className="flex-1 py-2 px-4 rounded font-mono text-xs transition-all bg-yellow-500/20 border-2 border-yellow-500 text-yellow-500 hover:bg-yellow-500/30 neon-border-yellow flex items-center justify-center gap-2"
+                  >
+                    <Trophy className="w-4 h-4" />
+                    CLAIM FULLY MASTERED (+500 XP)
+                  </button>
+                  <button
+                    onClick={() => {
+                      dispatch({ type: 'REMOVE_BOOKMARKED_CHAPTER', payload: chapter.id });
+                      addTerminalLog(`Chapter removed: ${chapter.name}`, 'warning');
+                    }}
+                    className="p-2 rounded bg-red-500/20 border border-red-500/50 text-red-400 hover:bg-red-500/30 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-cyber-border/50 flex items-center justify-center">
+              <Bookmark className="w-8 h-8 text-cyber-muted" />
+            </div>
+            <p className="text-cyber-muted text-sm">No chapters bookmarked yet.</p>
+            <p className="text-cyber-muted text-xs mt-1">Add chapters above to start tracking!</p>
+          </div>
+        )}
+      </div>
+
+      <HackerTerminalLog />
+    </div>
+  );
+}
+
+// =============================================================================
+// VIEW COMPONENTS - SIMULATOR (PYQ TEST)
+// =============================================================================
+
+function SimulatorView() {
+  const { state, dispatch, addTerminalLog } = useApp();
+  const { chapters, userStats } = state;
+
+  const [uploadZoneActive, setUploadZoneActive] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [config, setConfig] = useState<ExamConfig>({
+    testName: 'JEE Mock Test',
+    subject: 'Physics',
+    numQuestions: 10,
+    totalMinutes: 30,
+  });
+  const [examOpen, setExamOpen] = useState(false);
+  const [examResults, setExamResults] = useState<{ score: number; correct: number; incorrect: number; questions: ExamQuestion[] } | null>(null);
+  const [showResults, setShowResults] = useState(false);
+  const [xpEarned, setXpEarned] = useState(0);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setUploadZoneActive(true);
+  };
+
+  const handleDragLeave = () => {
+    setUploadZoneActive(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setUploadZoneActive(false);
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      setUploadedFileName(file.name);
+      setConfig((prev) => ({
+        ...prev,
+        testName: file.name.replace(/\.[^/.]+$/, ''),
+      }));
+      addTerminalLog(`File uploaded: ${file.name}`, 'info');
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      setUploadedFileName(file.name);
+      setConfig((prev) => ({
+        ...prev,
+        testName: file.name.replace(/\.[^/.]+$/, ''),
+      }));
+      addTerminalLog(`File uploaded: ${file.name}`, 'info');
+    }
+  };
+
+  const handleLaunchExam = () => {
+    setExamOpen(true);
+    addTerminalLog(`Exam started: ${config.testName}`, 'info');
+  };
+
+  const handleExamComplete = (results: { score: number; correct: number; incorrect: number; questions: ExamQuestion[] }) => {
+    setExamResults(results);
+    setExamOpen(false);
+    setShowResults(true);
+
+    const xpReward = results.correct * 5;
+    setXpEarned(xpReward);
+
+    dispatch({
+      type: 'UPDATE_USER_STATS',
+      payload: { currentXp: userStats.currentXp + xpReward },
+    });
+
+    const testEntry: TestHistoryEntry = {
+      id: `test-${Date.now()}`,
+      testName: config.testName,
+      subject: config.subject,
+      score: results.score,
+      totalQuestions: config.numQuestions,
+      timeTaken: config.totalMinutes,
+      date: new Date().toISOString().split('T')[0],
+      xpEarned: xpReward,
+      correctAnswers: results.correct,
+      incorrectAnswers: results.incorrect,
+    };
+
+    dispatch({ type: 'ADD_TEST_HISTORY', payload: testEntry });
+
+    addTerminalLog(`Exam completed: ${results.correct}/${config.numQuestions} correct`, results.incorrect > 0 ? 'warning' : 'success', xpReward);
+
+    results.questions.forEach((q) => {
+      if (q.userAnswer && q.userAnswer !== q.correctAnswer) {
+        const mistake: MistakeEntry = {
+          id: `mistake-${Date.now()}-${q.id}`,
+          questionId: `q-${q.id}`,
+          chapterId: config.subject.toLowerCase(),
+          subject: config.subject,
+          questionText: q.text,
+          userAnswer: q.userAnswer,
+          correctAnswer: q.correctAnswer,
+          explanation: '',
+          timestamp: new Date().toISOString(),
+          reviewed: false,
+          notes: '',
+          testName: config.testName,
+        };
+        dispatch({ type: 'ADD_MISTAKE', payload: mistake });
+      }
+    });
+
+    if (results.incorrect > 0) {
+      addTerminalLog(`${results.incorrect} mistakes added to inventory`, 'error');
+    }
+
+    const newXp = userStats.currentXp + xpReward;
+    const { level, rank, nextLevelXp } = getLevelFromXp(newXp);
+    if (level !== userStats.level || rank !== userStats.rank) {
+      dispatch({
+        type: 'UPDATE_USER_STATS',
+        payload: { level, rank, nextLevelXp },
+      });
+      addTerminalLog(`LEVEL UP! Now Level ${level} - ${rank}`, 'warning');
+    }
+
+    setUploadedFileName(null);
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <ExamPortal
+        isOpen={examOpen}
+        onClose={() => setExamOpen(false)}
+        config={config}
+        onComplete={handleExamComplete}
+      />
+
+      <ExamResultsModal
+        isOpen={showResults}
+        onClose={() => setShowResults(false)}
+        results={examResults}
+        config={config}
+        xpEarned={xpEarned}
+      />
+
+      <div className="cyber-panel p-6">
+        <h2 className="font-arcade text-lg text-cyber-cyan mb-2 flex items-center gap-2">
+          <FlaskConical className="w-6 h-6" />
+          PYQ Test Simulator
+        </h2>
+        <p className="text-cyber-muted text-sm mb-6">
+          Upload a mock PDF or configure your own test. Launch full-screen exam mode and track your progress.
+        </p>
+
+        {/* Upload Zone */}
+        <div
+          className={`relative border-2 border-dashed rounded-lg p-8 mb-6 transition-all cursor-pointer ${
+            uploadZoneActive
+              ? 'border-cyber-green bg-cyber-green/10'
+              : uploadedFileName
+              ? 'border-cyber-cyan bg-cyber-cyan/5'
+              : 'border-cyber-border hover:border-cyber-cyan bg-cyber-dark/30'
+          }`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <div className="text-center">
+            {uploadedFileName ? (
+              <>
+                <FileText className="w-12 h-12 mx-auto mb-3 text-cyber-cyan" />
+                <p className="text-cyber-cyan font-mono text-sm mb-1">{uploadedFileName}</p>
+                <p className="text-cyber-muted text-xs">File ready for import</p>
+              </>
+            ) : (
+              <>
+                <Upload className="w-12 h-12 mx-auto mb-3 text-cyber-muted" />
+                <p className="text-white font-mono text-sm mb-1">Drop your PDF here</p>
+                <p className="text-cyber-muted text-xs">or click to browse files</p>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Configurator */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="cyber-panel-inset p-4">
+            <label className="text-xs text-cyber-muted uppercase tracking-wider mb-2 block">Number of Questions</label>
+            <input
+              type="number"
+              value={config.numQuestions}
+              onChange={(e) => setConfig({ ...config, numQuestions: Math.max(1, Math.min(100, parseInt(e.target.value) || 10)) })}
+              className="w-full bg-cyber-dark border border-cyber-border rounded px-3 py-2 text-white font-mono focus:outline-none focus:border-cyber-cyan"
+              min="1"
+              max="100"
+            />
+          </div>
+          <div className="cyber-panel-inset p-4">
+            <label className="text-xs text-cyber-muted uppercase tracking-wider mb-2 block">Total Time (minutes)</label>
+            <input
+              type="number"
+              value={config.totalMinutes}
+              onChange={(e) => setConfig({ ...config, totalMinutes: Math.max(1, Math.min(180, parseInt(e.target.value) || 30)) })}
+              className="w-full bg-cyber-dark border border-cyber-border rounded px-3 py-2 text-white font-mono focus:outline-none focus:border-cyber-cyan"
+              min="1"
+              max="180"
+            />
+          </div>
+          <div className="cyber-panel-inset p-4">
+            <label className="text-xs text-cyber-muted uppercase tracking-wider mb-2 block">Subject</label>
+            <select
+              value={config.subject}
+              onChange={(e) => setConfig({ ...config, subject: e.target.value as 'Physics' | 'Chemistry' | 'Math' })}
+              className="w-full bg-cyber-dark border border-cyber-border rounded px-3 py-2 text-white font-mono focus:outline-none focus:border-cyber-cyan"
+            >
+              <option value="Physics">Physics</option>
+              <option value="Chemistry">Chemistry</option>
+              <option value="Math">Math</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Test Name */}
+        <div className="cyber-panel-inset p-4 mb-6">
+          <label className="text-xs text-cyber-muted uppercase tracking-wider mb-2 block">Test Name</label>
+          <input
+            type="text"
+            value={config.testName}
+            onChange={(e) => setConfig({ ...config, testName: e.target.value })}
+            className="w-full bg-cyber-dark border border-cyber-border rounded px-3 py-2 text-white font-mono focus:outline-none focus:border-cyber-cyan"
+            placeholder="Enter test name..."
+          />
+        </div>
+
+        {/* Launch Button */}
+        <button
+          onClick={handleLaunchExam}
+          className="w-full py-4 px-6 rounded-lg font-arcade text-lg transition-all bg-cyber-green/20 border-2 border-cyber-green text-cyber-green hover:bg-cyber-green/30 neon-border-green flex items-center justify-center gap-3"
+        >
+          <Play className="w-6 h-6" />
+          LAUNCH EXAM PORTAL
+        </button>
+
+        {/* JEE Scoring Info */}
+        <div className="mt-4 p-4 cyber-panel-inset border border-yellow-500/30 bg-yellow-500/5">
+          <h4 className="text-yellow-500 font-mono text-xs uppercase tracking-wider mb-2 flex items-center gap-2">
+            <Award className="w-4 h-4" />
+            JEE Scoring System
+          </h4>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="text-cyber-green">+4 for correct answers</div>
+            <div className="text-red-400">-1 for incorrect answers</div>
+            <div className="text-cyber-muted">0 for unattempted</div>
+            <div className="text-yellow-500">+5 XP per correct answer</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Test History */}
+      <div className="cyber-panel p-6">
+        <h3 className="font-arcade text-sm text-cyber-green mb-4 flex items-center gap-2">
+          <BarChart3 className="w-5 h-5" />
+          Test History
+        </h3>
+        {state.testHistory.length > 0 ? (
+          <div className="space-y-3">
+            {state.testHistory.map((test) => (
+              <div key={test.id} className="cyber-panel-inset p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-white font-medium">{test.testName}</p>
+                    <p className="text-xs text-cyber-muted">{test.subject} | {test.date}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-mono text-cyber-cyan text-lg">
+                      {test.correctAnswers ?? test.score}/{test.totalQuestions}
+                    </p>
+                    <p className="text-xs text-cyber-muted">{test.timeTaken} min</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-cyber-green">Score: {test.score}</span>
+                  <span className="text-yellow-500">+{test.xpEarned ?? 0} XP</span>
+                </div>
+                {test.incorrectAnswers !== undefined && test.incorrectAnswers > 0 && (
+                  <div className="mt-2 text-xs text-red-400">
+                    {test.incorrectAnswers} mistake(s) logged
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-cyber-muted text-sm">No tests completed yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// VIEW COMPONENTS - MISTAKES
+// =============================================================================
+
+function MistakesView() {
+  const { state, dispatch, addTerminalLog } = useApp();
+  const { mistakeInventory } = state;
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editNotes, setEditNotes] = useState('');
+
+  const handleEditNotes = (id: string, currentNotes: string) => {
+    setEditingId(id);
+    setEditNotes(currentNotes);
+  };
+
+  const handleSaveNotes = (id: string) => {
+    dispatch({ type: 'UPDATE_MISTAKE', payload: { id, notes: editNotes } });
+    setEditingId(null);
+    addTerminalLog(`Notes updated for mistake`, 'info');
+  };
+
+  const handleDelete = (id: string) => {
+    dispatch({ type: 'DELETE_MISTAKE', payload: id });
+    addTerminalLog(`Mistake removed from inventory`, 'warning');
+  };
+
+  const handleMarkReviewed = (id: string) => {
+    dispatch({ type: 'MARK_MISTAKE_REVIEWED', payload: id });
+    addTerminalLog(`Mistake marked as reviewed`, 'success');
+  };
+
+  const groupedMistakes = mistakeInventory.reduce(
+    (acc, m) => {
+      if (!acc[m.subject]) acc[m.subject] = [];
+      acc[m.subject].push(m);
+      return acc;
+    },
+    {} as Record<string, MistakeEntry[]>
+  );
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="cyber-panel p-6">
+        <h2 className="font-arcade text-lg text-orange-500 mb-2 flex items-center gap-2">
+          <AlertTriangle className="w-6 h-6" />
+          Mistake Inventory
+        </h2>
+        <p className="text-cyber-muted text-sm mb-6">
+          Your personal vault of errors. Review, take notes, and mark them as resolved to prevent future mistakes.
+        </p>
+
+        {/* Stats Overview */}
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="cyber-panel-inset p-4 text-center">
+            <p className="font-mono text-2xl text-orange-500">{mistakeInventory.length}</p>
+            <p className="text-xs text-cyber-muted uppercase">Total</p>
+          </div>
+          <div className="cyber-panel-inset p-4 text-center">
+            <p className="font-mono text-2xl text-cyber-green">{mistakeInventory.filter((m) => m.reviewed).length}</p>
+            <p className="text-xs text-cyber-muted uppercase">Reviewed</p>
+          </div>
+          <div className="cyber-panel-inset p-4 text-center">
+            <p className="font-mono text-2xl text-red-400">{mistakeInventory.filter((m) => !m.reviewed).length}</p>
+            <p className="text-xs text-cyber-muted uppercase">Pending</p>
+          </div>
+          <div className="cyber-panel-inset p-4 text-center">
+            <p className="font-mono text-2xl text-cyber-cyan">{mistakeInventory.filter((m) => m.notes).length}</p>
+            <p className="text-xs text-cyber-muted uppercase">With Notes</p>
+          </div>
+        </div>
+
+        {/* Mistake List by Subject */}
+        {mistakeInventory.length > 0 ? (
+          <div className="space-y-6">
+            {['Physics', 'Chemistry', 'Math'].map((subject) => {
+              const subjectMistakes = groupedMistakes[subject] || [];
+              if (subjectMistakes.length === 0) return null;
+
+              return (
+                <div key={subject}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <SubjectIcon subject={subject} className={getSubjectColor(subject)} />
+                    <h3 className={`font-mono text-sm uppercase tracking-wider ${getSubjectColor(subject)}`}>
+                      {subject}
+                    </h3>
+                    <span className="cyber-panel-inset px-2 py-0.5 text-xs text-cyber-muted">
+                      {subjectMistakes.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {subjectMistakes.map((mistake) => (
+                      <div
+                        key={mistake.id}
+                        className={`cyber-panel-inset p-4 ${
+                          mistake.reviewed ? 'opacity-60' : ''
+                        }`}
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <p className="text-white text-sm mb-1">{mistake.questionText}</p>
+                            {mistake.testName && (
+                              <p className="text-xs text-cyber-muted">From: {mistake.testName}</p>
+                            )}
+                          </div>
+                          <span
+                            className={`text-xs px-2 py-1 rounded shrink-0 ${
+                              mistake.reviewed
+                                ? 'bg-cyber-green/20 text-cyber-green'
+                                : 'bg-orange-500/20 text-orange-500'
+                            }`}
+                          >
+                            {mistake.reviewed ? 'Reviewed' : 'Pending'}
+                          </span>
+                        </div>
+
+                        {/* Answer Comparison */}
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                          <div className="bg-red-500/10 p-3 rounded border border-red-500/30">
+                            <p className="text-red-400 text-xs uppercase mb-1">Your Answer</p>
+                            <p className="text-red-300 font-mono">{mistake.userAnswer}</p>
+                          </div>
+                          <div className="bg-cyber-green/10 p-3 rounded border border-cyber-green/30">
+                            <p className="text-cyber-green text-xs uppercase mb-1">Correct Answer</p>
+                            <p className="text-cyber-green font-mono">{mistake.correctAnswer}</p>
+                          </div>
+                        </div>
+
+                        {/* Notes Section */}
+                        <div className="mb-3">
+                          <label className="text-xs text-cyber-muted uppercase tracking-wider mb-1 block">
+                            <Edit3 className="w-3 h-3 inline mr-1" />
+                            Your Notes / Takeaways
+                          </label>
+                          {editingId === mistake.id ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={editNotes}
+                                onChange={(e) => setEditNotes(e.target.value)}
+                                className="w-full bg-cyber-dark border border-cyber-cyan rounded p-3 text-white text-sm font-mono focus:outline-none resize-none"
+                                rows={3}
+                                placeholder="Write formulas, concepts, or review notes..."
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleSaveNotes(mistake.id)}
+                                  className="px-3 py-1 text-xs bg-cyber-green/20 border border-cyber-green text-cyber-green rounded hover:bg-cyber-green/30 flex items-center gap-1"
+                                >
+                                  <Save className="w-3 h-3" />
+                                  Save
+                                </button>
+                                <button
+                                  onClick={() => setEditingId(null)}
+                                  className="px-3 py-1 text-xs bg-cyber-muted/20 border border-cyber-muted text-cyber-muted rounded hover:bg-cyber-muted/30"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => handleEditNotes(mistake.id, mistake.notes)}
+                              className="cyber-panel-inset p-3 min-h-[60px] cursor-pointer hover:border-cyber-cyan transition-colors"
+                            >
+                              {mistake.notes ? (
+                                <p className="text-cyber-muted text-sm">{mistake.notes}</p>
+                              ) : (
+                                <p className="text-cyber-muted/50 text-sm italic">Click to add notes...</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2">
+                          {!mistake.reviewed && (
+                            <button
+                              onClick={() => handleMarkReviewed(mistake.id)}
+                              className="px-3 py-1 text-xs bg-cyber-green/20 border border-cyber-green text-cyber-green rounded hover:bg-cyber-green/30 flex items-center gap-1"
+                            >
+                              <Check className="w-3 h-3" />
+                              Mark Reviewed
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDelete(mistake.id)}
+                            className="px-3 py-1 text-xs bg-red-500/20 border border-red-500/50 text-red-400 rounded hover:bg-red-500/30 flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Delete
+                          </button>
+                        </div>
+
+                        {/* Timestamp */}
+                        <p className="text-[10px] text-cyber-muted mt-2">
+                          Added: {new Date(mistake.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-cyber-green/10 flex items-center justify-center">
+              <Trophy className="w-10 h-10 text-cyber-green" />
+            </div>
+            <h3 className="font-arcade text-cyber-green mb-2">Clean Record!</h3>
+            <p className="text-cyber-muted text-sm">
+              No mistakes recorded yet. Complete a test to populate this vault!
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Study Tips */}
+      <div className="cyber-panel p-6">
+        <h3 className="font-arcade text-sm text-cyber-cyan mb-4 flex items-center gap-2">
+          <BookOpen className="w-5 h-5" />
+          Revision Strategies
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="cyber-panel-inset p-4">
+            <p className="text-cyber-green font-mono text-sm mb-1">Spaced Repetition</p>
+            <p className="text-cyber-muted text-xs">Review mistakes at increasing intervals to reinforce learning.</p>
+          </div>
+          <div className="cyber-panel-inset p-4">
+            <p className="text-cyber-cyan font-mono text-sm mb-1">Active Recall</p>
+            <p className="text-cyber-muted text-xs">Test yourself on past mistakes without looking at answers.</p>
+          </div>
+          <div className="cyber-panel-inset p-4">
+            <p className="text-yellow-500 font-mono text-sm mb-1">Error Analysis</p>
+            <p className="text-cyber-muted text-xs">Understand WHY you got it wrong - was it concept or calculation?</p>
+          </div>
+          <div className="cyber-panel-inset p-4">
+            <p className="text-purple-400 font-mono text-sm mb-1">Pattern Recognition</p>
+            <p className="text-cyber-muted text-xs">Identify recurring weak areas and focus your revision there.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// MAIN APP COMPONENT
+// =============================================================================
+
+function AppContent() {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { state } = useApp();
+
+  const renderView = () => {
+    switch (state.activeTab) {
+      case 'dashboard':
+        return <DashboardView />;
+      case 'quests':
+        return <QuestsView />;
+      case 'simulator':
+        return <SimulatorView />;
+      case 'mistakes':
+        return <MistakesView />;
+      default:
+        return <DashboardView />;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-cyber-black text-white">
+      <DesktopSidebar />
+      <MobileHeader onMenuClick={() => setDrawerOpen(true)} />
+      <MobileDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <MobileBottomNav />
+
+      <main className="lg:pl-80 xl:pl-96 pt-16 pb-20 lg:pt-0 lg:pb-0">
+        <div className="min-h-screen p-4 md:p-6 lg:p-8">
+          <div className="max-w-4xl mx-auto">{renderView()}</div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AppProvider>
+      <AppContent />
+    </AppProvider>
+  );
+}
 
