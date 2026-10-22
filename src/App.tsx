@@ -1823,8 +1823,7 @@ function MobileDrawer({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
 // =============================================================================
 // VIEW COMPONENTS - DASHBOARD
 // =============================================================================
-
-function DashboardView() {
+    function DashboardView() {
   const { state } = useApp();
   const { userStats, chapters, testHistory } = state;
 
@@ -1840,9 +1839,20 @@ function DashboardView() {
               <h2 className="font-arcade text-xl text-cyber-cyan neon-text-cyan">{userStats.hunterName}</h2>
             </div>
           </div>
-          <p className="text-cyber-muted text-sm">
+          <p className="text-cyber-muted text-sm mb-4">
             Your journey to JEE mastery continues. Complete quests, level up, and dominate the ranks.
           </p>
+
+          {/* Cloud Sync & Global Leaderboard Trigger Button */}
+          <button
+            onClick={() => {
+              const event = new CustomEvent('open-cloud-modal');
+              window.dispatchEvent(event);
+            }}
+            className="px-4 py-2 bg-cyber-green/20 border border-cyber-green text-cyber-green font-arcade text-xs rounded hover:bg-cyber-green/30 transition-all flex items-center gap-2 shadow-neon-green"
+          >
+            <span>🌐 CLOUD SYNC & GLOBAL LEADERBOARD</span>
+          </button>
         </div>
       </div>
 
@@ -1940,6 +1950,8 @@ function DashboardView() {
     </div>
   );
 }
+ 
+             
 // =============================================================================
 // VIEW COMPONENTS - QUESTS
 // =============================================================================
