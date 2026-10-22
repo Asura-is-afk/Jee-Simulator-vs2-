@@ -48,7 +48,7 @@ import {
 // =============================================================================
 // TYPES & INTERFACES
 // =============================================================================
-
+import { CloudSyncModal } from './components/CloudSyncModal';
 interface UserStats {
   hunterName: string;
   level: number;
@@ -2858,13 +2858,14 @@ function MistakesView() {
 // =============================================================================
 
 function AppContent() {
+  const { state, dispatch, setActiveTab, addTerminalLog } = useApp();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const { state } = useApp();
+  const [isCloudModalOpen, setIsCloudModalOpen] = useState(false); // <--- ADD THIS STATE
 
   const renderView = () => {
     switch (state.activeTab) {
       case 'dashboard':
-        return <DashboardView />;
+        return <DashboardView onOpenCloudModal={() => setIsCloudModalOpen(true)} />; // Pass down trigger if needed
       case 'quests':
         return <QuestsView />;
       case 'simulator':
@@ -2872,7 +2873,7 @@ function AppContent() {
       case 'mistakes':
         return <MistakesView />;
       default:
-        return <DashboardView />;
+        return <DashboardView onOpenCloudModal={() => setIsCloudModalOpen(true)} />;
     }
   };
 
@@ -2882,15 +2883,29 @@ function AppContent() {
       <MobileHeader onMenuClick={() => setDrawerOpen(true)} />
       <MobileDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
       <MobileBottomNav />
-
       <main className="lg:pl-80 xl:pl-96 pt-16 pb-20 lg:pt-0 lg:pb-0">
         <div className="min-h-screen p-4 md:p-6 lg:p-8">
           <div className="max-w-4xl mx-auto">{renderView()}</div>
         </div>
       </main>
+
+      {/* --- ADD CLOUD SYNC & LEADERBOARD MODAL HERE --- */}
+      <CloudSyncModal
+        isOpen={isCloudModalOpen}
+        onClose={() => setIsCloudModalOpen(false)}
+        currentStats={{
+          username: state.userStats?.hunterName || 'SOLO_ASPIRANT',
+          xp: state.userStats?.currentXp || 0,
+          level: state.userStats?.level || 1,
+          rank: state.userStats?.rank || 'Aspirant',
+          coins: state.userStats?.currency || 0,
+          streak: state.userStats?.streak || 0,
+        }}
+      />
     </div>
   );
 }
+
 
 export default function App() {
   return (
